@@ -8,28 +8,32 @@ namespace App\Models;
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
-        'bookable_type',
-        'bookable_id',
-        'start_date',
-        'end_date',
+        'guest_id',
+        'property_id',
+        'check_in_date',
+        'check_out_date',
         'number_of_guests',
-        'total_price',
+        'number_of_nights',
+        'price_per_night',
+        'total_amount',
+        'special_requests',
         'status',
     ];
 
     protected $casts = [
-        'start_date' => 'datetime',
-        'end_date' => 'datetime',
+        'check_in_date' => 'date',
+        'check_out_date' => 'date',
+        'price_per_night' => 'decimal:2',
+        'total_amount' => 'decimal:2',
     ];
 
-    public function user()
+    public function guest()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'guest_id');
     }
 
-    public function bookable()
+    public function property()
     {
-        return $this->morphTo();
+        return $this->belongsTo(Property::class);
     }
 }
