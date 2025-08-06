@@ -13,19 +13,31 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 
+use App\Models\UserProfile;
+use App\Models\ServiceProvider;
+use Illuminate\Http\Response;
+use Illuminate\Validation\ValidationException;
+
 class AuthController extends Controller
 {
-    /**
-     * Register a new user
+/**
+     * Register a new user with user_type support
      */
-    public function register(Request $request): JsonResponse
+    public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
+            'user_type' => 'required|in:guest,host,service_customer,service_provider',
             'phone' => 'nullable|string|max:20',
-            'user_type' => 'required|string|in:' . implode(',', UserType::values()),
+            'address' => 'nullable|string|max:500',
+            
+            // Additional fields for service providers
+            'business_name' => 'nullable|string|max:255|required_if:user_type,service_provider',
+            'business_description' => 'nullable|string|max:1000|required_if:user_type,service_provider',
+            'license_number' => 'nullable|string|max:100',
+            'years_of_experience' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -37,28 +49,60 @@ class AuthController extends Controller
         }
 
         try {
+            // Create user
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
                 'password' => Hash::make($request->password),
-                'phone_number' => $request->phone,
                 'user_type' => $request->user_type,
             ]);
 
-            // Assign role based on user type
-            $user->assignRole($request->user_type);
+            // Create user profile if additional info provided
+            if ($request->filled(['phone', 'address'])) {
+                UserProfile::create([
+                    'user_id' => $user->id,
+                    'phone' => $request->phone,
+                    'address' => $request->address,
+                ]);
+            }
 
+            // Create service provider record if user is registering as service provider
+            if ($request->user_type === 'service_provider') {
+                ServiceProvider::create([
+                    'user_id' => $user->id,
+                    'business_name' => $request->business_name,
+                    'business_description' => $request->business_description,
+                    'license_number' => $request->license_number,
+                    'years_of_experience' => $request->years_of_experience ?? 0,
+                    'verification_status' => 'pending',
+                    'is_available' => false, // Set to false until verified
+                ]);
+            }
+
+            // Create Sanctum token
             $token = $user->createToken('auth_token')->plainTextToken;
+
+            // Load relationships for response
+            $user->load(['profile', 'serviceProvider']);
 
             return response()->json([
                 'success' => true,
-                'message' => 'User registered successfully',
                 'data' => [
-                    'user' => $user,
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'user_type' => $user->user_type,
+                        'profile' => $user->profile,
+                        'service_provider' => $user->serviceProvider,
+                        'created_at' => $user->created_at,
+                    ],
                     'access_token' => $token,
-                    'token_type' => 'Bearer',
-                ]
+                    'token_type' => 'Bearer'
+                ],
+                'message' => 'User registered successfully'
             ], 201);
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -71,10 +115,10 @@ class AuthController extends Controller
     /**
      * Login user
      */
-    public function login(Request $request): JsonResponse
+    public function login(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'email' => 'required|string|email',
             'password' => 'required|string',
         ]);
 
@@ -86,82 +130,121 @@ class AuthController extends Controller
             ], 422);
         }
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
+        try {
+            $credentials = $request->only('email', 'password');
+
+            if (!Auth::attempt($credentials)) {
+                throw ValidationException::withMessages([
+                    'email' => ['The provided credentials are incorrect.'],
+                ]);
+            }
+
+            $user = Auth::user();
+            
+            // Check if user account is active
+            if (!$user->is_active) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account has been suspended. Please contact support.'
+                ], 403);
+            }
+
+            // Revoke all existing tokens for security
+            $user->tokens()->delete();
+
+            // Create new token
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            // Load relationships
+            $user->load(['profile', 'serviceProvider']);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'user_type' => $user->user_type,
+                        'profile' => $user->profile,
+                        'service_provider' => $user->serviceProvider,
+                        'created_at' => $user->created_at,
+                    ],
+                    'access_token' => $token,
+                    'token_type' => 'Bearer'
+                ],
+                'message' => 'Login successful'
+            ]);
+
+        } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials'
-            ], 401);
+                'message' => 'Login failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Login failed',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $user = User::where('email', $request->email)->firstOrFail();
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Login successful',
-            'data' => [
-                'user' => $user,
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-            ]
-        ]);
     }
 
     /**
-     * Logout user (Revoke the token)
+     * Get authenticated user profile
      */
-    public function logout(Request $request): JsonResponse
+    public function profile()
     {
-        $request->user()->currentAccessToken()->delete();
+        try {
+            $user = Auth::user();
+            $user->load(['profile', 'serviceProvider']);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Logged out successfully'
-        ]);
-    }
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'user_type' => $user->user_type,
+                    'is_active' => $user->is_active,
+                    'profile' => $user->profile,
+                    'service_provider' => $user->serviceProvider,
+                    'email_verified_at' => $user->email_verified_at,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ],
+                'message' => 'Profile retrieved successfully'
+            ]);
 
-    /**
-     * Refresh token
-     */
-    public function refresh(Request $request): JsonResponse
-    {
-        $user = $request->user();
-        $user->currentAccessToken()->delete();
-        
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Token refreshed successfully',
-            'data' => [
-                'user' => $user,
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-            ]
-        ]);
-    }
-
-    /**
-     * Get user profile
-     */
-    public function profile(Request $request): JsonResponse
-    {
-        return response()->json([
-            'success' => true,
-            'data' => $request->user()->load('profile')
-        ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve profile',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
      * Update user profile
      */
-    public function updateProfile(Request $request): JsonResponse
+    public function updateProfile(Request $request)
     {
+        $user = Auth::user();
+
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
-            'phone' => 'sometimes|string|max:20',
-            'address' => 'sometimes|string|max:500',
-            'profile_picture' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'email' => 'sometimes|string|email|max:255|unique:users,email,' . $user->id,
+            'phone' => 'nullable|string|max:20',
+            'address' => 'nullable|string|max:500',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            
+            // Service provider specific fields
+            'business_name' => 'nullable|string|max:255',
+            'business_description' => 'nullable|string|max:1000',
+            'license_number' => 'nullable|string|max:100',
+            'years_of_experience' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -173,41 +256,83 @@ class AuthController extends Controller
         }
 
         try {
-            $user = $request->user();
-            
-            $updateData = [];
-            if ($request->has('name')) $updateData['name'] = $request->name;
-            if ($request->has('phone')) $updateData['phone_number'] = $request->phone;
-            if ($request->has('address')) $updateData['address'] = $request->address;
-            
-            if ($request->hasFile('profile_picture')) {
-                $path = $request->file('profile_picture')->store('profile_pictures', 'public');
-                $updateData['profile_picture'] = $path;
+            // Update user basic info
+            $userUpdateData = array_intersect_key($request->all(), array_flip(['name', 'email']));
+            if (!empty($userUpdateData)) {
+                $user->update($userUpdateData);
             }
 
-            $user->update($updateData);
+            // Handle avatar upload
+            $avatarUrl = null;
+            if ($request->hasFile('avatar')) {
+                $avatar = $request->file('avatar');
+                $filename = 'avatar_' . $user->id . '_' . time() . '.' . $avatar->getClientOriginalExtension();
+                $avatar->storeAs('public/avatars', $filename);
+                $avatarUrl = '/storage/avatars/' . $filename;
+            }
+
+            // Update or create profile
+            $profileData = array_filter([
+                'phone' => $request->phone,
+                'address' => $request->address,
+                'avatar' => $avatarUrl ?? $user->profile?->avatar,
+            ]);
+
+            if (!empty($profileData)) {
+                $user->profile()->updateOrCreate(
+                    ['user_id' => $user->id],
+                    $profileData
+                );
+            }
+
+            // Update service provider info if applicable
+            if ($user->user_type === 'service_provider' && $user->serviceProvider) {
+                $providerUpdateData = array_filter([
+                    'business_name' => $request->business_name,
+                    'business_description' => $request->business_description,
+                    'license_number' => $request->license_number,
+                    'years_of_experience' => $request->years_of_experience,
+                ]);
+
+                if (!empty($providerUpdateData)) {
+                    $user->serviceProvider->update($providerUpdateData);
+                }
+            }
+
+            // Reload relationships
+            $user->load(['profile', 'serviceProvider']);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Profile updated successfully',
-                'data' => $user->fresh()
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'user_type' => $user->user_type,
+                    'profile' => $user->profile,
+                    'service_provider' => $user->serviceProvider,
+                    'updated_at' => $user->updated_at,
+                ],
+                'message' => 'Profile updated successfully'
             ]);
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Profile update failed',
+                'message' => 'Failed to update profile',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
     /**
-     * Send password reset link
+     * Change password
      */
-    public function forgotPassword(Request $request): JsonResponse
+    public function changePassword(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email|exists:users,email',
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:8|confirmed',
         ]);
 
         if ($validator->fails()) {
@@ -218,59 +343,88 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $status = Password::sendResetLink(
-            $request->only('email')
-        );
+        try {
+            $user = Auth::user();
 
-        return $status === Password::RESET_LINK_SENT
-            ? response()->json([
+            if (!Hash::check($request->current_password, $user->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Current password is incorrect'
+                ], 422);
+            }
+
+            $user->update([
+                'password' => Hash::make($request->new_password)
+            ]);
+
+            // Revoke all tokens to force re-login for security
+            $user->tokens()->delete();
+
+            return response()->json([
                 'success' => true,
-                'message' => 'Password reset link sent to your email'
-            ])
-            : response()->json([
+                'message' => 'Password changed successfully. Please login again.'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
                 'success' => false,
-                'message' => 'Failed to send reset link'
+                'message' => 'Failed to change password',
+                'error' => $e->getMessage()
             ], 500);
+        }
     }
 
     /**
-     * Reset password
+     * Logout user
      */
-    public function resetPassword(Request $request): JsonResponse
+    public function logout()
     {
-        $validator = Validator::make($request->all(), [
-            'token' => 'required',
-            'email' => 'required|email',
-            'password' => 'required|min:8|confirmed',
-        ]);
+        try {
+            Auth::user()->currentAccessToken()->delete();
 
-        if ($validator->fails()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Logout successful'
+            ]);
+
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $status = Password::reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
-            function ($user, $password) {
-                $user->forceFill([
-                    'password' => Hash::make($password)
-                ])->setRememberToken(Str::random(60));
-
-                $user->save();
-            }
-        );
-
-        return $status === Password::PASSWORD_RESET
-            ? response()->json([
-                'success' => true,
-                'message' => 'Password reset successfully'
-            ])
-            : response()->json([
-                'success' => false,
-                'message' => 'Failed to reset password'
+                'message' => 'Logout failed',
+                'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Refresh token
+     */
+    public function refresh()
+    {
+        try {
+            $user = Auth::user();
+            
+            // Revoke current token
+            $user->currentAccessToken()->delete();
+            
+            // Create new token
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'access_token' => $token,
+                    'token_type' => 'Bearer'
+                ],
+                'message' => 'Token refreshed successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to refresh token',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
