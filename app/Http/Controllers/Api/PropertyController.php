@@ -90,7 +90,7 @@ class PropertyController extends Controller
                 'host' => [
                     'id' => $property->user->id,
                     'name' => $property->user->name,
-                    'avatar' => $property->user->profile?->avatar ?? '/default-avatar.png',
+                    'avatar' => isset($property->user->profile) && $property->user->profile->avatar ? $property->user->profile->avatar : '/default-avatar.png',
                     'joined_date' => $property->user->created_at->format('Y-m-d'),
                 ],
                 'reviews' => [], // Simplified for now to avoid relationship issues
