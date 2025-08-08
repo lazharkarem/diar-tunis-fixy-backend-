@@ -58,7 +58,7 @@ class AdminController extends Controller
     public function getUsers(Request $request)
     {
         $users = User::with(['profile', 'serviceProvider'])->paginate($request->get('per_page', 15));
-        
+
         return response()->json([
             'success' => true,
             'data' => $users,
@@ -117,8 +117,8 @@ class AdminController extends Controller
             $user->profile()->updateOrCreate(
                 ['user_id' => $user->id],
                 [
-                    'phone' => $validated['phone'] ?? $user->profile?->phone,
-                    'address' => $validated['address'] ?? $user->profile?->address,
+                    'phone' => $validated['phone'] ?? ($user->profile ? $user->profile->phone : null),
+                    'address' => $validated['address'] ?? ($user->profile ? $user->profile->address : null),
                 ]
             );
         }
@@ -133,7 +133,7 @@ class AdminController extends Controller
     public function deleteUser($id)
     {
         $user = User::findOrFail($id);
-        
+
         // Prevent deletion of the current admin user
         if ($user->id === auth()->id()) {
             return response()->json([

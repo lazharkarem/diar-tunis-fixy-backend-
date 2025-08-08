@@ -45,7 +45,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
-        'user_type' => \App\Enums\UserType::class,
+        'user_type' => 'string',
         'is_active' => 'boolean', // Add this cast
     ];
 
@@ -212,7 +212,7 @@ class User extends Authenticatable
      */
     public function getDisplayNameAttribute()
     {
-        return $this->profile?->full_name ?? $this->name;
+        return $this->profile ? $this->profile->full_name : $this->name;
     }
 
     /**
@@ -220,6 +220,6 @@ class User extends Authenticatable
      */
     public function getAvatarUrlAttribute()
     {
-        return $this->profile?->avatar ?? '/default-avatar.png';
+        return $this->profile ? $this->profile->avatar : '/default-avatar.png';
     }
 }
