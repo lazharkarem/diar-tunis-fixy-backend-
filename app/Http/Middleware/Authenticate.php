@@ -16,6 +16,12 @@ class Authenticate extends Middleware
             return null;
         }
 
-        return route('login');
+        // If this is an API request, return null to let the frontend handle the redirect
+        if ($request->is('api/*')) {
+            return null;
+        }
+
+        // For web routes, redirect to the home page or login page if it exists
+        return '/login';
     }
 }

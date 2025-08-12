@@ -52,9 +52,12 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->authMiddleware([
-                Authenticate::class,
+                \App\Http\Middleware\EnsureUserIsAdmin::class,
             ])
             ->sidebarCollapsibleOnDesktop()
-            ->brandName('Diar Tunis & Fixy Admin');
+            ->brandName('Diar Tunis & Fixy Admin')
+            ->passwordReset()
+            ->emailVerification()
+            ->profile();
     }
 }

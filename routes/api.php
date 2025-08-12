@@ -116,8 +116,8 @@ Route::middleware('auth:sanctum')->group(function () {
         });
     });
 
-    // Admin routes
-    Route::prefix('admin')->middleware('role:admin')->group(function () {
+    // Admin routes - Only accessible by admin users
+    Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
 
         // User Management
         Route::prefix('users')->group(function () {

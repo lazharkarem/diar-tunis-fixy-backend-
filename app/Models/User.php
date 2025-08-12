@@ -7,13 +7,33 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Spatie\Permission\Traits\HasRoles;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles {
+        assignRole as protected assignRoleTrait;
+    }
+
+    /**
+     * Get the guard name for the user.
+     *
+     * @return string
+     */
+    public function guardName()
+    {
+        return 'web';
+    }
+    
+    /**
+     * Check if the user can access the Filament admin panel.
+     */
+    public function canAccessPanel(\Filament\Panel $panel): bool
+    {
+        return $this->hasRole('admin');
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -46,7 +66,7 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
         'user_type' => 'string',
-        'is_active' => 'boolean', // Add this cast
+        'is_active' => 'boolean',
     ];
 
     /**
@@ -57,6 +77,25 @@ class User extends Authenticatable
     protected $attributes = [
         'is_active' => true, // Default value
     ];
+    
+    /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = [
+        'role_names',
+    ];
+    
+    /**
+     * Get the user's role names.
+     *
+     * @return array
+     */
+    public function getRoleNamesAttribute()
+    {
+        return $this->getRoleNames();
+    }
 
     // ========== RELATIONSHIPS ==========
 
