@@ -31,6 +31,11 @@ namespace App\Models;
     {
         return $this->belongsTo(User::class, 'guest_id');
     }
+    
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'guest_id');
+    }
 
     public function property()
     {

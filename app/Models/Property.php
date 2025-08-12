@@ -27,6 +27,11 @@ namespace App\Models;
     {
         return $this->belongsTo(User::class, 'host_id');
     }
+    
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'host_id');
+    }
 
     public function images()
     {
@@ -37,6 +42,9 @@ namespace App\Models;
     {
        return $this->hasMany(PropertyAmenity::class);
     }
-
-
+    
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class);
+    }
 }

@@ -62,7 +62,7 @@ class PropertyController extends Controller
                 'user.profile',
                 'bookings' => function($query) {
                     $query->where('status', '!=', 'cancelled')
-                          ->select(['id', 'bookable_id', 'bookable_type', 'start_date', 'end_date']);
+                          ->select(['id', 'property_id', 'check_in_date', 'check_out_date']);
                 }
             ])->where('status', 'active')->findOrFail($id);
 
@@ -125,8 +125,8 @@ class PropertyController extends Controller
         if ($property->bookings) {
             foreach ($property->bookings as $booking) {
                 $bookedDates[] = [
-                    'start_date' => $booking->start_date,
-                    'end_date' => $booking->end_date,
+                    'start_date' => $booking->check_in_date,
+                    'end_date' => $booking->check_out_date,
                 ];
             }
         }

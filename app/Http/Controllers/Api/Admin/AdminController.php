@@ -114,8 +114,10 @@ class AdminController extends Controller
         $user->update(array_intersect_key($validated, array_flip(['name', 'email', 'user_type', 'is_active'])));
 
         if (isset($validated['phone']) || isset($validated['address'])) {
+            // Use the user's ID directly without calling a method
+            $userId = $user->id;
             $user->profile()->updateOrCreate(
-                ['user_id' => $user->id],
+                ['user_id' => $userId],
                 [
                     'phone' => $validated['phone'] ?? ($user->profile ? $user->profile->phone : null),
                     'address' => $validated['address'] ?? ($user->profile ? $user->profile->address : null),
@@ -135,7 +137,8 @@ class AdminController extends Controller
         $user = User::findOrFail($id);
 
         // Prevent deletion of the current admin user
-        if ($user->id === auth()->id()) {
+        $authId = auth('sanctum')->id();
+        if ($user->id === $authId) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot delete your own account'
@@ -153,7 +156,7 @@ class AdminController extends Controller
     // PROPERTY MANAGEMENT
     public function getAllProperties(Request $request)
     {
-        $properties = Property::with(['user', 'amenities', 'images'])
+        $properties = Property::with(['host', 'amenities', 'images'])
             ->when($request->status, function($query, $status) {
                 return $query->where('status', $status);
             })
