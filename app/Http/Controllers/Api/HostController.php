@@ -18,7 +18,7 @@ class HostController extends Controller
     public function getProperties(Request $request)
     {
         $properties = Property::where('host_id', Auth::id())
-            ->with(['user.profile', 'bookings'])
+            ->with(['user.profile', 'bookings', 'images'])
             ->orderBy('created_at', 'desc')
             ->paginate($request->get('per_page', 15));
 
